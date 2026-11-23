@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATM Transaction System: Concurrency Simulator</title>
+<style>
+:root{--bg:#eef1f4;--card:#fff;--ink:#16202e;--muted:#5a6678;--line:#d4dae1;--accent:#1d3557;--bad:#b3261e;--badbg:#fbe9e7;--good:#0b6b5f;--goodbg:#e2f3f0;--warn:#8a5a00;--warnbg:#fff3d6;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#18202a;--ink:#e6ebf1;--muted:#9aa7b8;--line:#2c3744;--accent:#9db8e0;--bad:#ff8a80;--badbg:#3a1f1d;--good:#5fd3c0;--goodbg:#14312d;--warn:#ffd27a;--warnbg:#3a2e12;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:28px 18px 50px}
+h1{font-size:clamp(1.6rem,4.5vw,2.4rem);margin:0 0 4px;letter-spacing:-.02em}
+.sub{color:var(--muted);margin:0 0 22px;max-width:46em}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.row{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:flex-end}
+.grp label.t{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:5px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{font:600 14px inherit;font-family:inherit;padding:8px 14px;border:0;background:var(--bg);color:var(--ink);cursor:pointer;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){.seg button[aria-pressed=true]{color:#10151c}}
+.go{font:700 15px inherit;font-family:inherit;padding:10px 22px;border-radius:7px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+@media (prefers-color-scheme:dark){.go{color:#10151c}}
+.go.sec{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+button:disabled,input:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.explain{font-size:15px;color:var(--muted);margin:14px 0 0}
+.stage{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px}
+.atm{border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden}
+.atm h2,.acct h2{margin:0;padding:10px 14px;font-size:15px;border-bottom:1px solid var(--line)}
+.screen{background:#0d2b2b;color:#ffc857;margin:12px;border-radius:6px;padding:12px 14px;min-height:150px;font:14px/1.6 ui-monospace,Menlo,Consolas,monospace}
+.screen .st{font-weight:700;font-size:15px}
+.screen .blk{color:#ff8f7e}.screen .ok{color:#7be0c3}
+.amt{padding:0 14px 14px;font-size:14px}
+.amt input{width:100%;padding:8px 10px;font:600 16px inherit;font-family:inherit;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);margin-top:4px}
+.acct{border:2px solid var(--accent);border-radius:10px;background:var(--card);overflow:hidden}
+.big{padding:12px 14px;border-bottom:1px solid var(--line)}
+.big small{display:block;font-size:12px;color:var(--muted);font-weight:600}
+.big strong{font-size:1.7rem;letter-spacing:-.01em}
+.locks{display:flex;gap:8px;padding:12px 14px;flex-wrap:wrap}
+.lock{font-size:13px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg)}
+.lock.held{background:var(--warnbg);color:var(--warn);border-color:var(--warn)}
+.banner{display:none;padding:14px 16px;border-radius:8px;font-weight:600;margin-bottom:16px}
+.banner.bad{background:var(--badbg);color:var(--bad);display:block}
+.banner.good{background:var(--goodbg);color:var(--good);display:block}
+.banner small{display:block;font-weight:400;margin-top:3px;color:var(--ink)}
+ol#log{list-style:none;margin:0;padding:0;font-size:14px;max-height:340px;overflow-y:auto}
+ol#log li{display:grid;grid-template-columns:64px 42px 1fr;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line)}
+ol#log li:last-child{border-bottom:0}
+ol#log .tm{color:var(--muted);font-variant-numeric:tabular-nums}
+ol#log .w1{color:var(--good);font-weight:700}ol#log .w2{color:var(--bad);font-weight:700}ol#log .ws{color:var(--muted);font-weight:700}
+ol#log .empty{display:block;color:var(--muted)}
+h3{margin:0 0 8px;font-size:15px}
+@media (max-width:760px){.stage{grid-template-columns:1fr}.acct{order:-1}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>ATM Transaction System simulator</h1>
+<p class="sub">Two ATMs withdraw from one shared account at the same moment. Turn protection off and on to see the race condition, the mutex fix, and the two-lock deadlock. Case study CS7, 25PCCS201 Operating Systems, Team 4.</p>
+
+<div class="panel">
+<div class="row">
+<div class="grp"><label class="t" id="l-sc">Scenario</label>
+<div class="seg" role="group" aria-labelledby="l-sc"><button type="button" data-sc="race" aria-pressed="true">Race on one account</button><button type="button" data-sc="dead" aria-pressed="false">Two locks (deadlock)</button></div></div>
+<div class="grp"><label class="t" id="l-pr">Protection</label>
+<div class="seg" role="group" aria-labelledby="l-pr"><button type="button" data-pr="0" aria-pressed="true" id="pr0">No synchronization</button><button type="button" data-pr="1" aria-pressed="false" id="pr1">Mutex</button></div></div>
+<div class="grp"><label class="t" for="speed">Step time</label><input type="range" id="speed" min="300" max="1500" value="800" step="100"></div>
+<div class="grp" style="margin-left:auto"><button class="go" id="run" type="button">Run both ATMs</button> <button class="go sec" id="reset" type="button">Reset</button></div>
+</div>
+<p class="explain" id="explain"></p>
+</div>
+
+<div class="banner" id="banner" role="status"></div>
+
+<div class="stage">
+<div class="atm"><h2>ATM 1 · Transaction T1</h2>
+<div class="screen" id="s1"></div>
+<div class="amt"><label for="a1">Withdraw (₹)</label><input id="a1" type="number" min="100" step="100" value="8000"></div></div>
+
+<div class="acct"><h2>Shared bank account</h2>
+<div class="big"><small>Database balance</small><strong id="bal">₹10,000</strong></div>
+<div class="big"><small>Total cash dispensed</small><strong id="disp">₹0</strong></div>
+<div class="locks" id="locks"></div></div>
+
+<div class="atm"><h2>ATM 2 · Transaction T2</h2>
+<div class="screen" id="s2"></div>
+<div class="amt"><label for="a2">Withdraw (₹)</label><input id="a2" type="number" min="100" step="100" value="8000"></div></div>
+</div>
+
+<div class="panel"><h3>Timeline</h3><ol id="log"></ol></div>
+</div>
+
+<script>
+(function(){
+var START=10000,$=function(i){return document.getElementById(i)};
+var R=function(v){return "₹"+v.toLocaleString("en-IN")};
+var sc="race",pr=0,S,running=false;
+
+function Mu(n){this.n=n;this.h=null;this.q=[]}
+Mu.prototype.acq=function(id){var m=this;if(!m.h){m.h=id;return Promise.resolve()}return new Promise(function(r){m.q.push({id:id,r:r})})};
+Mu.prototype.rel=function(){var n=this.q.shift();if(n){this.h=n.id;n.r()}else this.h=null};
+
+function fresh(){
+ S={run:(S?S.run:0)+1,bal:START,disp:0,t0:0,dead:false,
+  L:{db:new Mu("L_db"),log:new Mu("L_log")},waiting:{},active:{},
+  tx:{1:{st:"Idle",line:"",local:null,msg:"",c:""},2:{st:"Idle",line:"",local:null,msg:"",c:""}}};
+}
+function size(o){return Object.keys(o).length}
+function log(w,t){
+ var ol=$("log"),e=ol.querySelector(".empty");if(e)ol.removeChild(e);
+ var li=document.createElement("li"),ms=S.t0?Date.now()-S.t0:0;
+ li.innerHTML='<span class="tm">'+(ms/1000).toFixed(1)+' s</span><span class="'+(w?"w"+w:"ws")+'">'+(w?"T"+w:"OS")+'</span><span>'+t+'</span>';
+ ol.appendChild(li);ol.scrollTop=ol.scrollHeight;
+}
+function set(id,st,c,line){var T=S.tx[id];T.st=st;T.c=c||"";if(line!==undefined)T.line=line;render()}
+function render(){
+ $("bal").textContent=R(S.bal);$("disp").textContent=R(S.disp);
+ [1,2].forEach(function(i){var T=S.tx[i];
+  $("s"+i).innerHTML='<div class="st '+T.c+'">'+T.st+'</div><div>'+(T.line||"")+'</div><div>Local copy: '+(T.local==null?"–":R(T.local))+'</div><div class="'+(T.c==="ok"?"ok":"")+'">'+(T.msg||"")+'</div>';});
+ var lh="";["db","log"].forEach(function(k){var m=S.L[k];lh+='<span class="lock'+(m.h?" held":"")+'">'+m.n+": "+(m.h?"held by T"+m.h:"free")+"</span>"});
+ $("locks").innerHTML=lh;
+}
+function sleep(ms,my){return new Promise(function(r){setTimeout(r,ms)}).then(function(){if(my!==S.run)throw "stop"})}
+function checkDead(){
+ var w=size(S.waiting),a=size(S.active);
+ if(w>0&&w===a&&!S.dead){S.dead=true;log(0,"No transaction can continue: every active transaction is waiting.");
+  banner("bad","Deadlock","T1 holds "+holds(1)+" and waits for the other lock. T2 holds "+holds(2)+" and waits for the first. Circular wait: neither will ever finish.");
+  [1,2].forEach(function(i){if(S.tx[i].st!=="Done")S.tx[i].c="blk"});render();endRun()}
+}
+function holds(i){var s=[];["db","log"].forEach(function(k){if(S.L[k].h===i)s.push(S.L[k].n)});return s.join(", ")||"nothing"}
+async function lock(id,k,my){
+ var m=S.L[k];
+ if(m.h){set(id,"Blocked","blk","Waiting for "+m.n+" (held by T"+m.h+")");log(id,"Requests "+m.n+" — held by T"+m.h+", so T"+id+" is blocked");S.waiting[id]=1;checkDead()}
+ await m.acq(id);if(my!==S.run)throw "stop";
+ delete S.waiting[id];set(id,"Running","","Acquired "+m.n);log(id,"Acquired "+m.n);
+}
+function unlock(id,k){S.L[k].rel();log(id,"Released "+S.L[k].n);render()}
+
+async function raceTx(id,amt,sync,my,tick){
+ var T=S.tx[id];S.active[id]=1;
+ if(sync)await lock(id,"db",my);
+ set(id,"Running","","S1 read balance");T.local=S.bal;log(id,"S1 reads the balance: "+R(T.local));render();await sleep(tick,my);
+ set(id,"Running","","S2 check "+R(T.local)+" ≥ "+R(amt)+" ?");
+ if(T.local<amt){log(id,"S2 check fails: "+R(T.local)+" < "+R(amt)+". Rejected.");T.msg="Insufficient funds";set(id,"Rejected","blk");
+  if(sync)unlock(id,"db");delete S.active[id];return}
+ log(id,"S2 check passes: "+R(T.local)+" ≥ "+R(amt));await sleep(tick,my);
+ T.local-=amt;set(id,"Running","","S3 deduct from local copy");log(id,"S3 deducts from its local copy → "+R(T.local));await sleep(tick,my);
+ S.bal=T.local;set(id,"Running","","S4 write balance");log(id,"S4 writes "+R(S.bal)+" to the database");await sleep(tick,my);
+ if(sync)unlock(id,"db");
+ S.disp+=amt;T.msg="Cash dispensed: "+R(amt);set(id,"Done","ok","");log(id,"Dispenses "+R(amt));delete S.active[id];
+}
+async function deadTx(id,amt,order,my,tick){
+ var T=S.tx[id];S.active[id]=1;
+ await lock(id,order[0],my);await sleep(tick*1.5,my);
+ await lock(id,order[1],my);
+ set(id,"Running","","Read, check, deduct, write, log");T.local=S.bal;
+ if(S.bal>=amt){S.bal-=amt;S.disp+=amt;T.local=S.bal;T.msg="Cash dispensed: "+R(amt);log(id,"Withdraws "+R(amt)+" and appends the log entry")}
+ else{T.msg="Insufficient funds";log(id,"Balance too low; rejects and logs it")}
+ render();await sleep(tick,my);
+ unlock(id,order[1]);unlock(id,order[0]);
+ set(id,T.msg.indexOf("Cash")===0?"Done":"Rejected",T.msg.indexOf("Cash")===0?"ok":"blk","");delete S.active[id];
+}
+function banner(k,h,t){var b=$("banner");b.className="banner "+k;b.innerHTML=h+"<small>"+t+"</small>"}
+function endRun(){running=false;setUi()}
+function verdict(){
+ var paid=S.disp,drop=START-S.bal;
+ if(sc==="dead"){banner("good","Both transactions finished","Same lock order means T2 waited for L_db, so no cycle formed. Final balance "+R(S.bal)+", dispensed "+R(paid)+".");return}
+ if(paid!==drop||paid>START)banner("bad","Inconsistent: lost update","The bank dispensed "+R(paid)+" but the database balance only fell by "+R(drop)+" (final "+R(S.bal)+"). Cash paid beyond the account's "+R(START)+": "+R(Math.max(0,paid-START))+".");
+ else banner("good","Correct serial outcome","Dispensed "+R(paid)+", final balance "+R(S.bal)+". The second withdrawal saw the updated balance, so no money was created.");
+}
+async function go(){
+ if(running)return;fresh();running=true;setUi();$("log").innerHTML="";$("banner").className="banner";
+ var my=S.run,tick=+$("speed").value,a1=+$("a1").value||0,a2=+$("a2").value||0;
+ S.t0=Date.now();render();
+ log(0,sc==="race"?"Both ATMs start. Account balance "+R(START)+". Synchronization: "+(pr?"mutex on L_db":"none"):"Both ATMs start. T1 order: L_db → L_log. T2 order: "+(pr?"L_db → L_log (fixed)":"L_log → L_db (opposite)"));
+ try{
+  if(sc==="race"){
+   var p1=raceTx(1,a1,pr,my,tick),p2=sleep(tick/2,my).then(function(){return raceTx(2,a2,pr,my,tick)});
+   await Promise.all([p1,p2]);if(my!==S.run)return;verdict();endRun();
+  }else{
+   var o2=pr?["db","log"]:["log","db"];
+   await Promise.all([deadTx(1,a1,["db","log"],my,tick),deadTx(2,a2,o2,my,tick)]);
+   if(my!==S.run||S.dead)return;verdict();endRun();
+  }
+ }catch(e){if(e!=="stop")throw e}
+}
+function reset(){fresh();running=false;$("log").innerHTML='<li class="empty">Press “Run both ATMs” to start.</li>';$("banner").className="banner";render();setUi()}
+function setUi(){
+ $("run").disabled=running;["a1","a2"].forEach(function(i){$(i).disabled=running});
+ document.querySelectorAll("[data-sc],[data-pr]").forEach(function(b){b.disabled=running});
+ var r=sc==="race";
+ $("pr0").textContent=r?"No synchronization":"Opposite lock order";$("pr1").textContent=r?"Mutex":"Same lock order (fixed)";
+ $("explain").textContent=r?
+  (pr?"The mutex makes read, check, deduct and write one critical section. T2 waits (Blocked), then reads the updated balance and is rejected.":"Each ATM reads, checks, deducts and writes in four steps, and the steps interleave. Both read the same stale balance and both pass the check."):
+  (pr?"Both transactions take L_db first, then L_log. A transaction can never hold L_log while waiting for L_db, so circular wait cannot happen.":"A successful withdrawal needs two locks. T1 takes L_db then L_log; T2 takes L_log then L_db. Each ends up holding one lock and waiting for the other.");
+}
+document.querySelectorAll("[data-sc]").forEach(function(b){b.addEventListener("click",function(){sc=b.dataset.sc;document.querySelectorAll("[data-sc]").forEach(function(x){x.setAttribute("aria-pressed",x===b)});reset()})});
+document.querySelectorAll("[data-pr]").forEach(function(b){b.addEventListener("click",function(){pr=+b.dataset.pr;document.querySelectorAll("[data-pr]").forEach(function(x){x.setAttribute("aria-pressed",x===b)});reset()})});
+$("run").addEventListener("click",go);$("reset").addEventListener("click",reset);
+reset();
+})();
+</script>
+</body>
+</html>
